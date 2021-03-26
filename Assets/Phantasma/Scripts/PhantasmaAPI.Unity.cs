@@ -846,7 +846,33 @@ namespace Phantasma.SDK
 		}
 	}
 	
-   
+   public struct Leaderboard
+    {
+
+		public string name;
+		public Address owner;
+		public BigInteger size;
+		public BigInteger round;
+
+		public struct LeaderboardRow
+		{
+			public Address address;
+			public BigInteger score;
+		}
+
+		public static Leaderboard FromNode(DataNode node)
+		{
+			Leaderboard result;
+
+			result.name = node.GetString("name");
+			result.owner = Address.FromText(node.GetString("owner"));
+			result.size = node.GetInt32("size");
+			result.round = node.GetInt32("owner");
+
+			return result;
+		}
+	}
+
    public class PhantasmaAPI {	   
 		public readonly	string Host;
 	   
@@ -1135,6 +1161,14 @@ namespace Phantasma.SDK
 			} , addressText, tokenSymbol, chainInput);		   
 		}
 		
+		//Return the Leaderboard for a specific address
+		public IEnumerator GetLeaderboard(string name, Action<Leaderboard> callback, Action<EPHANTASMA_SDK_ERROR_TYPE, string> errorHandlingCallback = null)
+		{
+			yield return WebClient.RPCRequest(Host, "getLeaderboard", WebClient.NoTimeout, errorHandlingCallback, (node) => {
+				var result = Leaderboard.FromNode(node);
+				callback(result);
+			}, name);
+		}
 		
 		//Returns the number of active auctions.
 		public IEnumerator GetAuctionsCount(string chainAddressOrName, string symbol, Action<int> callback, Action<EPHANTASMA_SDK_ERROR_TYPE, string> errorHandlingCallback = null)  
