@@ -942,7 +942,6 @@ namespace Phantasma.SDK
 				result.oracles = new Oracle[0];
 			}
 
-
 			return result;
 		}
 	}
