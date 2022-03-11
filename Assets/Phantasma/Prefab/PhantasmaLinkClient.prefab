@@ -43,6 +43,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ac97ef215e404244291f9e86e33327ab, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  Version: 2
   DappID: demo
   Host: localhost:7090
+  Platform: 1
+  Signature: 1
   GasPrice: 100000
+  GasLimit: 100000
