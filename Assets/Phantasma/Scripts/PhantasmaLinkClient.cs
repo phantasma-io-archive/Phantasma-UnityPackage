@@ -10,6 +10,7 @@ using Phantasma.Numerics;
 using Phantasma.Cryptography;
 using UnityEngine.Events;
 using Phantasma.SDK;
+using System.Text;
 
 public class PhantasmaLinkClient: MonoBehaviour
 {
@@ -29,10 +30,27 @@ public class PhantasmaLinkClient: MonoBehaviour
 
     public static PhantasmaLinkClient Instance { get; private set; }
 
+    [Header("Connection Version")]
+    [Tooltip("Strongly recommend to use the version 2")]
+    public int Version = 2;
+
+    [Header("Dapp Name")]
+    [Tooltip("Here is the contract name for the desired Dapp, i.e. Pharming")]
     public string DappID = "demo";
 
+    [Header("Wallet Endpoint")]
+    [Tooltip("Default value = localhost:7090 (don't change it)")]
     public string Host = "localhost:7090";
+
+    [Header("Platform and Signature")]
+    [Tooltip("This is used to sign transactions, for Phantasma blockchain use, (PlatformKind.Phantasma) and SignatureKind.ED25519 \n for Ethereum blockchain use, (PlatformKind.Ethereum) and SignatureKind.ECDSA")]
+    public PlatformKind Platform = PlatformKind.Phantasma;
+    public SignatureKind Signature = SignatureKind.Ed25519;
+    
+    [Space]
+    [Header("Gas Setup")]
     public int GasPrice = 100000;
+    public int GasLimit = 100000;
 
     private WebSocket websocket;
 
@@ -108,7 +126,7 @@ public class PhantasmaLinkClient: MonoBehaviour
     {
         SetMessage("Authorized, obtaining account info...");
 
-        SendLinkRequest("getAccount", (result) =>
+        SendLinkRequest($"getAccount/{Platform}", (result) =>
         {
             var success = result.GetBool("success");
             if (success)
@@ -168,6 +186,8 @@ public class PhantasmaLinkClient: MonoBehaviour
         {
             request = request + '/' + this.DappID + '/' + this.Token;
         }
+
+        Debug.Log("Sending Phantasma Link Request: " + request);
 
         requestID++;
 
@@ -293,7 +313,7 @@ public class PhantasmaLinkClient: MonoBehaviour
     /// Login to the Dapp
     /// </summary>
     /// <param name="callback"></param>
-    public void Login(Action<bool, string> callback)
+    public void Login(Action<bool, string> callback = null)
     {
         if (string.IsNullOrEmpty(this.Nexus))
         {
@@ -303,7 +323,7 @@ public class PhantasmaLinkClient: MonoBehaviour
 
         SetMessage("Connection established, authorizing...");
 
-        SendLinkRequest($"authorize/{DappID}", (result) =>
+        SendLinkRequest($"authorize/{DappID}/{Version}", (result) =>
         {
             var success = result.GetBool("success");
             if (success)
@@ -324,11 +344,19 @@ public class PhantasmaLinkClient: MonoBehaviour
             }
             else
             {
-                callback(false, "connection failed (or rejected)");
+                callback?.Invoke(false, "connection failed (or rejected)");
                 OnLogin?.Invoke(false, "connection failed (or rejected)");
-
             }
         });
+    }
+
+    /// <summary>
+    /// To Reload the account info
+    /// </summary>
+    /// <param name="callback"></param>
+    public void ReloadAccount(Action<bool, string> callback = null)
+    {
+        FetchAccount(callback);
     }
 
     /// <summary>
@@ -354,7 +382,7 @@ public class PhantasmaLinkClient: MonoBehaviour
     /// <param name="script"></param>
     /// <param name="payload"></param>
     /// <param name="callback"></param>
-    public void SendTransaction(string chain, byte[] script, byte[] payload, Action<Hash, string> callback)
+    public void SendTransaction(string chain, byte[] script, byte[] payload, Action<Hash, string> callback = null, PlatformKind platform = PlatformKind.Phantasma, SignatureKind signature = SignatureKind.Ed25519)
     {
         SetMessage("Relaying transaction...");
 
@@ -366,22 +394,85 @@ public class PhantasmaLinkClient: MonoBehaviour
 
         var hexScript = Base16.Encode(script);
         var hexPayload = payload != null && payload.Length > 0 ? Base16.Encode(payload) : ""; // is empty string for payload ok?
+        var requestStr = $"{chain}/{hexScript}/{hexPayload}";
+        if (Version >= 2)
+        {
+            requestStr = $"{requestStr}/{signature}/{platform}";
+        }
+        else
+        {
+            requestStr = $"{this.Nexus}/{requestStr}";
+        }
 
-        SendLinkRequest($"signTx/{this.Nexus}/{chain}/{hexScript}/{hexPayload}", (result) =>
+        SendLinkRequest($"signTx/{requestStr}", (result) =>
         {
             var success = result.GetBool("success");
             if (success)
             {
                 var hashStr = result.GetString("hash");
                 var hash = Hash.Parse(hashStr);
-                callback(hash, null);
+                callback?.Invoke(hash, null);
             }
             else
             {
                 var msg = result.GetString("message");
-                callback(Hash.Null, "transaction rejected: " + msg);
+                callback?.Invoke(Hash.Null, "transaction rejected: " + msg);
             }
         });
+    }
+
+    /// <summary>
+    /// To signed some type of data
+    /// </summary>
+    /// <param name="data">String with the data you want to sign</param>
+    /// <param name="callback"></param>
+    /// <param name="platform"></param>
+    /// <param name="signature"></param>
+    public void SignData(string data, Action<bool, string, string, string> callback = null, PlatformKind platform = PlatformKind.Phantasma, SignatureKind signature = SignatureKind.Ed25519)
+    {
+        if (!Enabled)
+        {
+            callback(true, "not logged in", "", "");
+            return;
+        }
+        if (data == null)
+        {
+            callback(true, "invalid data, sorry :(", "", "");
+            return;
+        }
+        if (data.Length >= 1024)
+        {
+            callback(true, "data too big, sorry :(", "", "");
+            return;
+        }
+
+        var dataConverted = Base16.Encode(Encoding.UTF8.GetBytes(data));
+
+        SendLinkRequest($"signData/{dataConverted}/{signature}/{platform}", (result) => {
+
+            var success = result.GetBool("success");
+            if (success)
+            {
+                var random = result.GetString("random");
+                var signedData = result.GetString("signature");
+                callback?.Invoke(false, signedData, random, dataConverted);
+            }
+            else
+            {
+                var msg = result.GetString("message");
+                callback?.Invoke(true, "transaction rejected: " + msg, "", "");
+            }
+        });
+
+    }
+
+    public enum PlatformKind
+    {
+        None = 0x0,
+        Phantasma = 0x1,
+        Neo = 0x2,
+        Ethereum = 0x4,
+        BSC = 0x8,
     }
     #endregion
 }
