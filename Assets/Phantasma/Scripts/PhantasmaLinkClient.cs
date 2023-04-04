@@ -1,16 +1,17 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Numerics;
 using NativeWebSocket;
 using UnityEngine;
 using UnityEngine.UI;
 using LunarLabs.Parser;
 using LunarLabs.Parser.JSON;
-using Phantasma.Numerics;
-using Phantasma.Cryptography;
 using UnityEngine.Events;
 using Phantasma.SDK;
 using System.Text;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Numerics;
 
 public class PhantasmaLinkClient: MonoBehaviour
 {
@@ -33,6 +34,10 @@ public class PhantasmaLinkClient: MonoBehaviour
     [Header("Connection Version")]
     [Tooltip("Strongly recommend to use the version 2")]
     public int Version = 2;
+
+    [SerializeField]
+    [Tooltip("simnet -> for Local node, testnet -> for Testnet node, mainnet -> for the Mainnet node")]
+    private string _nexus = "simnet";
 
     [Header("Dapp Name")]
     [Tooltip("Here is the contract name for the desired Dapp, i.e. Pharming")]
@@ -60,7 +65,11 @@ public class PhantasmaLinkClient: MonoBehaviour
 
     public bool Busy { get; private set; }
 
-    public string Nexus { get; private set; }
+    public string Nexus
+    {
+        get { return _nexus; }
+        private set { _nexus = value; }
+    }
     public string Wallet { get; private set; }
     public string Token { get; private set; }
     public string Name { get; private set; }
@@ -94,6 +103,11 @@ public class PhantasmaLinkClient: MonoBehaviour
         Instance = this;
 
         SetMessage("Loading...");
+    }
+
+    private void Start()
+    {
+        this.Enable();
     }
 
     /// <summary>
@@ -161,12 +175,12 @@ public class PhantasmaLinkClient: MonoBehaviour
                     }
                 }
 
-                callback(true, "Logged with success!");
+                callback?.Invoke(true, "Logged with success!");
                 OnLogin?.Invoke(true, "Logged with success!");
             }
             else
             {
-                callback(false, "could not obtain account");
+                callback?.Invoke(false, "could not obtain account");
                 OnLogin?.Invoke(false, "could not obtain account");
 
             }
@@ -182,10 +196,14 @@ public class PhantasmaLinkClient: MonoBehaviour
     /// <param name="callback"></param>
     private async void SendLinkRequest(string request, Action<DataNode> callback)
     {
-        if (this.Token != null)
+        if (!request.Contains("authorize"))
         {
-            request = request + '/' + this.DappID + '/' + this.Token;
+            if (this.Token != null)
+            {
+                request = request + '/' + this.DappID + '/' + this.Token;
+            }
         }
+            
 
         Debug.Log("Sending Phantasma Link Request: " + request);
 
@@ -195,7 +213,9 @@ public class PhantasmaLinkClient: MonoBehaviour
 
         _requestCallbacks[requestID] = callback;
         Debug.Log("Request=>" + request);
-
+        #if UNITY_ANDROID
+        await PhantasmaLinkClientPluginManager.Instance.SendTransaction(request);
+        #endif
         await websocket.SendText(request);
     }
 
@@ -238,6 +258,7 @@ public class PhantasmaLinkClient: MonoBehaviour
 
         this.Wallet = "Unknown";
         this.Token = null;
+        this.Nexus = _nexus;
 
         websocket = new WebSocket($"ws://{Host}/phantasma");
 
@@ -276,16 +297,13 @@ public class PhantasmaLinkClient: MonoBehaviour
                 var callback = _requestCallbacks[reqID];
                 _requestCallbacks.Remove(reqID);
 
-                callback(node);
+                callback?.Invoke(node);
             }
             else
             {
                 Debug.LogWarning("Got weird request with id " + reqID);
             }
         };
-
-
-        Debug.LogError(websocket.State);
 
         // waiting for messages
         await websocket.Connect();
@@ -332,13 +350,15 @@ public class PhantasmaLinkClient: MonoBehaviour
 
                 if (connectedNexus != this.Nexus)
                 {
-                    callback(false, $"invalid nexus: got {connectedNexus} but expected {this.Nexus}");
+                    this.IsLogged = false;
+                    callback?.Invoke(false, $"invalid nexus: got {connectedNexus} but expected {this.Nexus}");
                 }
                 else
                 {
                     this.Wallet = result.GetString("wallet");
                     this.Token = result.GetString("token");
-
+                    this.IsLogged = true;
+                    
                     FetchAccount(callback);
                 }
             }
@@ -388,7 +408,7 @@ public class PhantasmaLinkClient: MonoBehaviour
 
         if (script.Length >= 8192)
         {
-            callback(Hash.Null, "script too big");
+            callback?.Invoke(Hash.Null, "script too big");
             return;
         }
 
@@ -432,17 +452,17 @@ public class PhantasmaLinkClient: MonoBehaviour
     {
         if (!Enabled)
         {
-            callback(true, "not logged in", "", "");
+            callback?.Invoke(true, "not logged in", "", "");
             return;
         }
         if (data == null)
         {
-            callback(true, "invalid data, sorry :(", "", "");
+            callback?.Invoke(true, "invalid data, sorry :(", "", "");
             return;
         }
         if (data.Length >= 1024)
         {
-            callback(true, "data too big, sorry :(", "", "");
+            callback?.Invoke(true, "data too big, sorry :(", "", "");
             return;
         }
 
